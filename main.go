@@ -18,18 +18,15 @@ func main() {
 	)
 	flag.Parse()
 
-	token, created, err := LoadOrCreateToken(*tokenFile)
+	store, created, err := NewTokenStore(*tokenFile)
 	if err != nil {
 		log.Fatalf("token error: %v", err)
 	}
 
+	// Init token mode: print token then exit
 	if *initToken {
-		if created {
-			fmt.Println(token)
-			return
-		}
-		// If it already existed, still print (handy for local/dev; remove if you dislike this).
-		fmt.Println(token)
+		fmt.Println(store.Get())
+		_ = created // kept in case you want different behavior later
 		return
 	}
 
@@ -45,8 +42,9 @@ func main() {
 	})
 
 	// Auth-protected API
-	mux.Handle("/api/system", AuthMiddleware(token, http.HandlerFunc(SystemHandler)))
-	mux.Handle("/api/metrics", AuthMiddleware(token, http.HandlerFunc(MetricsHandler)))
+	mux.Handle("/api/system", AuthMiddleware(store, http.HandlerFunc(SystemHandler)))
+	mux.Handle("/api/metrics", AuthMiddleware(store, http.HandlerFunc(MetricsHandler)))
+	mux.Handle("/api/token/rotate", AuthMiddleware(store, RotateHandler(store)))
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -68,7 +66,6 @@ func getenv(k, def string) string {
 
 func withBasicHardening(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// tiny “sensible defaults”
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
